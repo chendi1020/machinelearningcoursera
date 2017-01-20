@@ -1,0 +1,152 @@
+---
+title: "Machine Learning Course Project"
+author: "Di"
+date: "January 20, 2017"
+output: html_document
+---
+
+
+#Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [link] (http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+```{r setup, cache = F, echo = F, message = F, warning = F, tidy = F, results='hide'}
+# make this an external chunk that can be included in any file
+library(knitr)
+options(width = 100)
+opts_chunk$set(message = F, error = F, warning = F, comment = NA, fig.align = 'center', dpi = 100, tidy = F, cache.path = '.cache/', fig.path = 'fig/')
+
+options(xtable.type = 'html')
+knit_hooks$set(inline = function(x) {
+  if(is.numeric(x)) {
+    round(x, getOption('digits'))
+  } else {
+    paste(as.character(x), collapse = ', ')
+  }
+})
+knit_hooks$set(plot = knitr:::hook_plot_html)
+runif(1)
+```
+
+* download the training and testing data from the URL given
+
+
+```{r, cache=T}
+download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv', destfile = "H:/Coursera/Machine Learning/pml-training.csv")
+
+download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv', destfile = "H:/Coursera/Machine Learning/pml-testing.csv")
+
+training <- read.csv("H:/Coursera/Machine Learning/pml-training.csv")
+testing <- read.csv("H:/Coursera/Machine Learning/pml-testing.csv")
+
+```
+
+* Since we want to get an estimate on our out of sample error, we need to further split the training set into the true training (mytrain) and the other dataset for testing (mytest)
+
+
+```{r}
+library(caret)
+set.seed(1020)
+pick <- createDataPartition(training$classe, p=0.7, list = F)
+mytrain <- training[pick,]
+mytest <- training[-pick,]
+```
+
+* Data pre-processiong: find nearzero variance variable and remove them from the mytrain dataset
+```{r}
+zerovar <- nearZeroVar(mytrain, saveMetrics = T)
+mytrain_sub <- mytrain[,! zerovar$nzv]
+dim(mytrain_sub)
+```
+
+* Data pre-processiong: find out variables with more than 60% cases missing and remove them from the test
+```{r}
+t<-apply(mytrain_sub, 2, function(x){sum(is.na(x))/length(x)})
+var <- names(which(t>0.6))
+mytrain_sub <- mytrain_sub[, ! names(mytrain_sub) %in% c(var)]
+```
+
+
+* Data pre-processiong: remove the first 6 variable since they are identifiers
+```{r}
+
+mytrain_sub <- mytrain_sub[,-c(1:6)]
+dim(mytrain_sub)
+```
+
+
+
+* keep the same variables for mytest and testing dataset
+```{r}
+mytest <- mytest[, names(mytest) %in% names(mytrain_sub)]
+testing <- testing[, names(mytrain_sub)[names(mytrain_sub) != 'classe']]
+```
+
+
+
+* for proper RandomForest Algorithm with the Test data set, we need to coerce the 2 test datasets into the same type.
+```{r}
+varclass <-sapply(mytrain_sub, class)
+#t <-  as.data.frame(mapply(FUN=as, mytest, varclass))
+
+mytest <- as.data.frame( mapply(FUN = as,mytest,sapply(mytrain_sub,class),SIMPLIFY =F))
+testing <-as.data.frame( mapply(FUN = as,testing,sapply(mytrain_sub,class)[1:52],SIMPLIFY =F))
+```
+
+
+* fit mytrain data with CART classifcation algorithm
+
+```{r}
+library(caret)
+library(randomForest)
+library(rattle)
+set.seed(1020)
+
+modelrpart <- train(classe ~ ., data=mytrain_sub, method='rpart')
+fancyRpartPlot(modelrpart$finalModel)
+
+
+```
+
+
+* apply final model from CART to the mytest dataset
+confusion matrix shows overall accuracy is  only 0.49
+```{r}
+predictrpart<- predict(modelrpart, mytest)
+confusionMatrix(predictrpart, mytest$classe)
+```
+
+
+
+* fit mytrain data with random forest for better prediction
+the in sample prediction is almost perferct : accuracy rate =1
+```{r, cache=TRUE}  
+
+
+set.seed(1020)
+modelrf<- randomForest(mytrain_sub[, 1:52], mytrain_sub$classe, method='rf')
+
+
+#insample error
+predinsample<- predict(modelrf, mytrain_sub)
+confusionMatrix(predinsample, mytrain_sub$classe)
+```
+
+* apply random forest model on my test data get estimate of out of sample error
+the performance of the random forest algorithm on the testing data is quite good. the estimated out of sample accuracy rate is 0.99
+```{r}
+
+
+predrf<- predict(modelrf, mytest,type = "class")
+confusionMatrix(predrf, mytest$classe)
+```
+
+
+* validate the random forest model on the testing set for predicting the classe
+
+```{r}
+predtrue <- predict(modelrf,testing)
+predtrue
+```
+
+
